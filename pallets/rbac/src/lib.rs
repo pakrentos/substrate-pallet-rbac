@@ -20,6 +20,10 @@ use sp_weights::Weight;
 // mod benchmarking;
 // pub mod weights;
 
+// pub mod extension;
+
+// pub mod traits;
+
 /// The `RoleInfo` struct holds information about a counter tracking how many consumers are using this role.
 #[derive(TypeInfo, MaxEncodedLen, Default, Encode, Decode)]
 pub struct RoleInfo {

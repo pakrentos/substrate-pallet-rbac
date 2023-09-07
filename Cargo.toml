@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "node",
-    "pallets/template",
+    "pallets/rbac",
     "runtime",
 ]
 [profile.release]
@@ -47,5 +47,5 @@ frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, g
 substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v1.0.0" }
 
 # Local Dependencies
-pallet-template = { default-features = false, path = "pallets/template" }
+pallet-rbac = { default-features = false, path = "pallets/rbac" }
 

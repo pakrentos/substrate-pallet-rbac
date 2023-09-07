@@ -4,6 +4,7 @@ version = "0.0.1"
 description = "RBAC Pallet"
 license = "MIT-0"
 publish = false
+edition = "2021"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
