@@ -1,13 +1,9 @@
 [package]
-name = "pallet-template"
-version = "4.0.0-dev"
-description = "FRAME pallet template for defining custom runtime logic."
-authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
-homepage = "https://substrate.io"
-edition = "2021"
+name = "pallet-rbac"
+version = "0.0.1"
+description = "RBAC Pallet"
 license = "MIT-0"
 publish = false
-repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -17,6 +13,7 @@ codec = { workspace = true, package = "parity-scale-codec" }
 scale-info = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
+sp-weights = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
@@ -33,6 +30,7 @@ std = [
 	"scale-info/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"sp-weights/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
