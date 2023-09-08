@@ -1,12 +1,23 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use crate::traits::CallValidator;
 pub use pallet::*;
 
 use codec::{FullCodec, MaxEncodedLen};
-use frame_support::pallet_prelude::{Decode, DispatchResult, Encode};
+use frame_support::{
+	ensure,
+	pallet_prelude::{Decode, DispatchResult, Encode},
+	Hashable,
+};
+use frame_system::Pallet as System;
 use scale_info::TypeInfo;
-use sp_runtime::{traits::Zero, BoundedBTreeSet, BoundedVec, DispatchError};
+use sp_runtime::{
+	traits::Zero,
+	transaction_validity::{InvalidTransaction, TransactionValidityError},
+	BoundedBTreeSet, BoundedVec, DispatchError,
+};
 use sp_std::default::Default;
+use sp_version::RuntimeVersion;
 // pub use weights::*;
 use sp_weights::Weight;
 
@@ -20,48 +31,73 @@ use sp_weights::Weight;
 // mod benchmarking;
 // pub mod weights;
 
-// pub mod extension;
+pub mod traits;
 
-// pub mod traits;
-
-/// The `RoleInfo` struct holds information about a counter tracking how many consumers are using this role.
-#[derive(TypeInfo, MaxEncodedLen, Default, Encode, Decode)]
+/// The `RoleInfo` struct holds information about a counter tracking how many consumers are using
+/// this role.
+#[derive(TypeInfo, MaxEncodedLen, Encode, Default, Decode)]
 pub struct RoleInfo {
 	consumers_counter: u128,
+	runtime_version: RuntimeVersionHash,
 }
 
 impl RoleInfo {
-	/// Increments the consumer counter by one. Returns an error if the operation would cause an overflow.
+	fn new(runtime_version: RuntimeVersion) -> Self {
+		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
+		Self { runtime_version: hashed_runtime_version, ..Default::default() }
+	}
+}
+
+impl RoleInfo {
+	/// Increments the consumer counter by one. Returns an error if the operation would cause an
+	/// overflow.
 	pub fn inc_consumers(&mut self) -> DispatchResult {
 		self.consumers_counter =
 			self.consumers_counter.checked_add(1).ok_or(DispatchError::TooManyConsumers)?;
 		Ok(())
 	}
 
-	/// Decrements the consumer counter by one. Returns an error if the operation would cause an underflow.
+	/// Decrements the consumer counter by one. Returns an error if the operation would cause an
+	/// underflow.
 	pub fn dec_consumers(&mut self) -> DispatchResult {
 		self.consumers_counter =
 			self.consumers_counter.checked_sub(1).ok_or(DispatchError::ConsumerRemaining)?;
 		Ok(())
 	}
 
-	/// Checks if the role is unused, i.e., if the consumers counter is zero. Returns an error if the role is still being used.
+	/// Checks if the role is unused, i.e., if the consumers counter is zero. Returns an error if
+	/// the role is still being used.
 	pub fn check_if_unused(&self) -> DispatchResult {
 		self.consumers_counter
 			.is_zero()
 			.then_some(())
 			.ok_or(DispatchError::ConsumerRemaining)
 	}
+
+	pub fn check_version(&self, runtime_version: RuntimeVersion) -> DispatchResult {
+		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
+		ensure!(
+			hashed_runtime_version == self.runtime_version,
+			DispatchError::Other("Role runtime version does not match current runtime version")
+		);
+		Ok(())
+	}
 }
 
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type RoleNameOf<T> = BoundedVec<u8, <T as Config>::StringLimit>;
-type RoleListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerCallLimit>;
+type CallRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerCallLimit>;
+type AccountRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerAccountLimit>;
+type RuntimeVersionHash = [u8; 16];
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::{ensure, pallet_prelude::*, traits::Get, Blake2_128Concat, Parameter};
+	use frame_support::{
+		pallet_prelude::{OptionQuery, *},
+		traits::Get,
+		Blake2_128Concat, Parameter,
+	};
 	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
@@ -77,10 +113,12 @@ pub mod pallet {
 		type StringLimit: Get<u32>;
 		/// Defines the maximum number of roles that can be associated with a particular call.
 		type RolesPerCallLimit: Get<u32>;
+
+		type RolesPerAccountLimit: Get<u32>;
 		/// Type representing the weight of this pallet
 		// type WeightInfo: WeightInfo;
 		/// Describes the metadata of a call, which is associated with roles to define permissions.
-		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter;
+		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter + From<(u64, u8)>;
 	}
 
 	/// Holds the role information for each role name.
@@ -92,21 +130,14 @@ pub mod pallet {
 	/// Holds account's roles
 	#[pallet::storage]
 	#[pallet::getter(fn account_roles)]
-	pub type AccountRoles<T: Config> = StorageDoubleMap<
-		_,
-		Blake2_128Concat,
-		AccountIdOf<T>,
-		Blake2_128Concat,
-		RoleNameOf<T>,
-		bool,
-		ValueQuery,
-	>;
+	pub type AccountRoles<T: Config> =
+		StorageMap<_, Blake2_128Concat, AccountIdOf<T>, AccountRolesListOf<T>, OptionQuery>;
 
 	/// Holds call's associated roles
 	#[pallet::storage]
 	#[pallet::getter(fn call_roles)]
 	pub type CallRoles<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::CallMetadata, RoleListOf<T>, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::CallMetadata, CallRolesListOf<T>, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -127,19 +158,24 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// The operation could not be completed because the origin of the call is not allowed to 
+		/// The operation could not be completed because the origin of the call is not allowed to
 		/// perform it.
 		BadOrigin,
 		/// The role cannot be created because a role with the same name already exists.
 		RoleExists,
 		/// The role cannot be found, it might have been removed or it does not exist.
 		RoleDoesNotExist,
-		/// The call cannot be added to the role because it is already part of the role's permissions.
+		/// The call cannot be added to the role because it is already part of the role's
+		/// permissions.
 		CallAlreadyAttachedToRole,
-		/// The operation cannot be completed because adding this role would exceed the allowed 
+		/// The operation cannot be completed because adding this role would exceed the allowed
 		/// number of roles per call.
 		TooManyRolesPerCall,
-		/// The call cannot be removed from the role because it is not part of the role's permissions.
+		/// The operation cannot be completed because adding this role would exceed the allowed
+		/// number of roles per account.
+		TooManyRolesPerAccount,
+		/// The call cannot be removed from the role because it is not part of the role's
+		/// permissions.
 		CallNotAttachedToRole,
 		/// The role cannot be assigned because it is already assigned to the account.
 		RoleAlreadyAssigned,
@@ -163,7 +199,8 @@ pub mod pallet {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
 			ensure!(Self::roles(&role_name).is_none(), Error::<T>::RoleExists);
 
-			Roles::<T>::insert(&role_name, RoleInfo::default());
+			let current_runtime_version = System::<T>::runtime_version();
+			Roles::<T>::insert(&role_name, RoleInfo::new(current_runtime_version));
 			Self::deposit_event(Event::<T>::RoleCreated { role_name });
 
 			Ok(().into())
@@ -184,10 +221,10 @@ pub mod pallet {
 			call: T::CallMetadata,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
+			Self::check_role_existance_and_version(&role_name)?;
 
 			CallRoles::<T>::mutate(&call, |call_roles| {
-				let call_roles = call_roles.get_or_insert(RoleListOf::<T>::default());
+				let call_roles = call_roles.get_or_insert(CallRolesListOf::<T>::default());
 				ensure!(!call_roles.contains(&role_name), Error::<T>::CallAlreadyAttachedToRole);
 				call_roles
 					.try_insert(role_name.clone())
@@ -214,7 +251,7 @@ pub mod pallet {
 			call: T::CallMetadata,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
+			Self::check_role_existance_and_version(&role_name)?;
 
 			CallRoles::<T>::mutate(&call, |call_roles| {
 				if let Some(call_roles) = call_roles.as_mut() {
@@ -245,10 +282,15 @@ pub mod pallet {
 			role_name: RoleNameOf<T>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
+			Self::check_role_existance_and_version(&role_name)?;
 
-			ensure!(!Self::account_roles(&who, &role_name), Error::<T>::RoleAlreadyAssigned,);
-			AccountRoles::<T>::insert(&who, &role_name, true);
+			AccountRoles::<T>::mutate(&who, |account_roles| {
+				let account_roles = account_roles.get_or_insert(AccountRolesListOf::<T>::default());
+				ensure!(!account_roles.contains(&role_name), Error::<T>::RoleAlreadyAssigned);
+				account_roles
+					.try_insert(role_name.clone())
+					.map_err(|_| Error::<T>::TooManyRolesPerAccount)
+			})?;
 			Self::inc_role_consumers(&role_name)?;
 			Self::deposit_event(Event::<T>::AccountAssignedToRole { role_name, who });
 
@@ -269,18 +311,25 @@ pub mod pallet {
 			role_name: RoleNameOf<T>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
+			Self::check_role_existance_and_version(&role_name)?;
 
-			ensure!(Self::account_roles(&who, &role_name), Error::<T>::MissingRole,);
-			AccountRoles::<T>::remove(&who, &role_name);
+			AccountRoles::<T>::mutate(&who, |account_roles| {
+				if let Some(account_roles) = account_roles.as_mut() {
+					ensure!(account_roles.contains(&role_name), Error::<T>::MissingRole);
+					account_roles.remove(&role_name);
+					Ok(())
+				} else {
+					Err(Error::<T>::MissingRole)
+				}
+			})?;
 			Self::dec_role_consumers(&role_name)?;
 			Self::deposit_event(Event::<T>::AccountUnassignedFromRole { role_name, who });
 
 			Ok(().into())
 		}
 
-		/// Removes a role definition entirely, unassigning it from all accounts and removing all calls
-		/// associated with it. This is a sensitive operation and should be used with caution.
+		/// Removes a role definition entirely, unassigning it from all accounts and removing all
+		/// calls associated with it. This is a sensitive operation and should be used with caution.
 		/// Only callable by accounts with the appropriate management origin.
 		///
 		/// # Parameters
@@ -329,5 +378,33 @@ impl<T: Config> Pallet<T> {
 				Err(Error::<T>::RoleDoesNotExist.into())
 			}
 		})
+	}
+
+	pub fn check_role_existance_and_version(role_name: &RoleNameOf<T>) -> DispatchResult {
+		let role_info = Self::roles(role_name).ok_or(Error::<T>::RoleDoesNotExist)?;
+		let current_version = System::<T>::runtime_version();
+		role_info.check_version(current_version)
+	}
+}
+
+impl<T: Config> CallValidator<T::CallMetadata, AccountIdOf<T>> for Pallet<T> {
+	fn validate_by_metadata(
+		call: T::CallMetadata,
+		who: &AccountIdOf<T>,
+	) -> Result<(), TransactionValidityError> {
+		let call_roles =
+			if let Some(call_roles) = Self::call_roles(&call) { call_roles } else { return Ok(()) };
+		let account_roles = if let Some(account_roles) = Self::account_roles(who) {
+			account_roles
+		} else {
+			return Err(TransactionValidityError::Invalid(InvalidTransaction::Call))
+		};
+		let role_name = call_roles
+			.intersection(&account_roles)
+			.next()
+			.ok_or(TransactionValidityError::Invalid(InvalidTransaction::Call))?;
+		Self::check_role_existance_and_version(&role_name)
+			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
+		Ok(())
 	}
 }

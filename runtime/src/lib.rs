@@ -6,7 +6,10 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use crate::primitives::CallMetadata as RuntimeCallMetadata;
+use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityId as GrandpaId;
+use pallet_rbac::traits::GetCallMetadataIndecies;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -27,8 +30,8 @@ use sp_version::RuntimeVersion;
 pub use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{
-		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness,
-		StorageInfo,
+		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, GetCallIndex, KeyOwnerProofSystem,
+		PalletInfoAccess, Randomness, StorageInfo,
 	},
 	weights::{
 		constants::{
@@ -67,6 +70,9 @@ pub type Nonce = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
+
+pub mod extensions;
+pub mod primitives;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -271,7 +277,12 @@ impl pallet_sudo::Config for Runtime {
 /// Configure the pallet-template in pallets/template.
 impl pallet_rbac::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
+	// type WeightInfo = ();
+	type ManageOrigin = EnsureRoot<AccountId>;
+	type StringLimit = ConstU32<50>;
+	type RolesPerAccountLimit = ConstU32<20>;
+	type RolesPerCallLimit = ConstU32<20>;
+	type CallMetadata = RuntimeCallMetadata;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -305,6 +316,7 @@ pub type SignedExtra = (
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	extensions::CheckRole<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -335,6 +347,31 @@ mod benches {
 		[pallet_sudo, Sudo]
 		[pallet_template, TemplateModule]
 	);
+}
+
+// System: frame_system,
+// Timestamp: pallet_timestamp,
+// Aura: pallet_aura,
+// Grandpa: pallet_grandpa,
+// Balances: pallet_balances,
+// TransactionPayment: pallet_transaction_payment,
+// Sudo: pallet_sudo,
+// // Include the custom logic from the pallet-template in the runtime.
+// Roles: pallet_rbac,
+
+pub type ModuleCallIndex = (u64, u8);
+
+impl GetCallMetadataIndecies for RuntimeCall {
+	fn get_call_metadata_indicies(&self) -> ModuleCallIndex {
+		match self {
+			Self::System(call) => (System::index() as u64, call.get_call_index()),
+			Self::Balances(call) => (Balances::index() as u64, call.get_call_index()),
+			Self::Grandpa(call) => (Grandpa::index() as u64, call.get_call_index()),
+			Self::Roles(call) => (Roles::index() as u64, call.get_call_index()),
+			Self::Sudo(call) => (Sudo::index() as u64, call.get_call_index()),
+			Self::Timestamp(call) => (Timestamp::index() as u64, call.get_call_index()),
+		}
+	}
 }
 
 impl_runtime_apis! {
