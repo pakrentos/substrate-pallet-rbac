@@ -85,7 +85,7 @@ impl RoleInfo {
 }
 
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
-type RoleNameOf<T> = BoundedVec<u8, <T as Config>::StringLimit>;
+type RoleNameOf<T> = BoundedVec<u8, <T as Config>::RoleNameLengthLimit>;
 type CallRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerCallLimit>;
 type AccountRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerAccountLimit>;
 type RuntimeVersionHash = [u8; 16];
@@ -110,7 +110,7 @@ pub mod pallet {
 		/// Defines who can manage roles
 		type ManageOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 		/// Defines the limit for the length of role names.
-		type StringLimit: Get<u32>;
+		type RoleNameLengthLimit: Get<u32>;
 		/// Defines the maximum number of roles that can be associated with a particular call.
 		type RolesPerCallLimit: Get<u32>;
 

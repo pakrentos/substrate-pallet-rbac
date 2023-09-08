@@ -279,7 +279,7 @@ impl pallet_rbac::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	// type WeightInfo = ();
 	type ManageOrigin = EnsureRoot<AccountId>;
-	type StringLimit = ConstU32<50>;
+	type RoleNameLengthLimit = ConstU32<50>;
 	type RolesPerAccountLimit = ConstU32<20>;
 	type RolesPerCallLimit = ConstU32<20>;
 	type CallMetadata = RuntimeCallMetadata;
