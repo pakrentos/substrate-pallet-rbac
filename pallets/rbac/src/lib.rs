@@ -251,7 +251,7 @@ pub mod pallet {
 			call: T::CallMetadata,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			Self::check_role_existance_and_version(&role_name)?;
+			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
 
 			CallRoles::<T>::mutate(&call, |call_roles| {
 				if let Some(call_roles) = call_roles.as_mut() {
@@ -311,7 +311,7 @@ pub mod pallet {
 			role_name: RoleNameOf<T>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
-			Self::check_role_existance_and_version(&role_name)?;
+			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
 
 			AccountRoles::<T>::mutate(&who, |account_roles| {
 				if let Some(account_roles) = account_roles.as_mut() {
