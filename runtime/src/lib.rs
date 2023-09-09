@@ -6,10 +6,12 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use crate::primitives::CallMetadata as RuntimeCallMetadata;
 use frame_system::EnsureRoot;
 use pallet_grandpa::AuthorityId as GrandpaId;
-use pallet_rbac::traits::GetCallMetadataIndecies;
+use pallet_rbac::{
+	primitives::{CallMetadata as RuntimeCallMetadata, ModuleCallIndex},
+	traits::GetCallMetadataIndecies,
+};
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -70,9 +72,6 @@ pub type Nonce = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
-
-pub mod extensions;
-pub mod primitives;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -317,7 +316,7 @@ pub type SignedExtra = (
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
-	extensions::CheckRole<Runtime>,
+	pallet_rbac::CheckRole<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -349,8 +348,6 @@ mod benches {
 		[pallet_template, TemplateModule]
 	);
 }
-
-pub type ModuleCallIndex = (u64, u8);
 
 impl GetCallMetadataIndecies for RuntimeCall {
 	fn get_call_metadata_indicies(&self) -> ModuleCallIndex {

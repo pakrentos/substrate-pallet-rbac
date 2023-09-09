@@ -1,7 +1,6 @@
-use crate::RuntimeCall;
+use crate::{traits::GetCallMetadataIndecies, CallValidator, Config, Pallet};
 use codec::{Decode, Encode};
 use frame_support::dispatch::fmt::Debug;
-use pallet_rbac::{traits::GetCallMetadataIndecies, CallValidator, Config, Pallet};
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::{DispatchInfoOf, SignedExtension},
@@ -27,7 +26,7 @@ impl<T: Config> CheckRole<T> {
 
 impl<T: Config + Send + Sync> SignedExtension for CheckRole<T> {
 	type AdditionalSigned = ();
-	type Call = RuntimeCall;
+	type Call = T::ExtendedRuntimeCall;
 	type AccountId = T::AccountId;
 	type Pre = ();
 	const IDENTIFIER: &'static str = "CheckRole";

@@ -121,7 +121,7 @@ pub fn create_benchmark_extrinsic(
 		frame_system::CheckNonce::<runtime::Runtime>::from(nonce),
 		frame_system::CheckWeight::<runtime::Runtime>::new(),
 		pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
-		runtime::extensions::CheckRole::<runtime::Runtime>::new(),
+		pallet_rbac::CheckRole::<runtime::Runtime>::new(),
 	);
 
 	let raw_payload = runtime::SignedPayload::from_raw(

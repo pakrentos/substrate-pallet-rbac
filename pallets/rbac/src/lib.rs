@@ -1,24 +1,21 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub use crate::traits::CallValidator;
+pub use crate::{
+	extension::CheckRole,
+	primitives::{RoleDispatchOrigin, RoleInfo},
+	traits::CallValidator,
+};
 pub use pallet::*;
 
 use codec::{FullCodec, MaxEncodedLen};
-use frame_support::{
-	dispatch::fmt::Debug,
-	ensure,
-	pallet_prelude::{Decode, DispatchResult, Encode},
-	Hashable,
-};
-use frame_system::{Pallet as System, RawOrigin};
+use frame_support::{ensure, pallet_prelude::DispatchResult};
+use frame_system::Pallet as System;
 use scale_info::TypeInfo;
 use sp_runtime::{
-	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	BoundedBTreeSet, BoundedVec, DispatchError,
 };
 use sp_std::default::Default;
-use sp_version::RuntimeVersion;
 // pub use weights::*;
 use sp_weights::Weight;
 
@@ -32,94 +29,15 @@ mod tests;
 // mod benchmarking;
 // pub mod weights;
 
+pub mod extension;
+pub mod primitives;
 pub mod traits;
-
-#[derive(TypeInfo, MaxEncodedLen, Encode, Default, Decode, Debug, Clone, PartialEq, Eq)]
-#[scale_info(skip_type_params(T))]
-pub enum RoleDispatchOrigin<AccountId> {
-	#[default]
-	Regular,
-	SignedAs {
-		who: AccountId,
-	},
-	Root,
-}
-
-/// The `RoleInfo` struct holds information about a counter tracking how many consumers are using
-/// this role.
-#[derive(TypeInfo, MaxEncodedLen, Encode, Decode)]
-#[scale_info(skip_type_params(T))]
-pub struct RoleInfo<AccounId> {
-	consumers_counter: u128,
-	runtime_version: RuntimeVersionHash,
-	dispatch_origin: RoleDispatchOrigin<AccounId>,
-	allow_filter_bypassing: bool,
-}
-
-impl<AccountId: Clone> RoleInfo<AccountId> {
-	fn new(
-		runtime_version: RuntimeVersion,
-		allow_filter_bypassing: bool,
-		dispatch_origin: RoleDispatchOrigin<AccountId>,
-	) -> Self {
-		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
-		Self {
-			runtime_version: hashed_runtime_version,
-			allow_filter_bypassing,
-			dispatch_origin,
-			consumers_counter: 0u128,
-		}
-	}
-
-	/// Increments the consumer counter by one. Returns an error if the operation would cause an
-	/// overflow.
-	pub fn inc_consumers(&mut self) -> DispatchResult {
-		self.consumers_counter =
-			self.consumers_counter.checked_add(1).ok_or(DispatchError::TooManyConsumers)?;
-		Ok(())
-	}
-
-	/// Decrements the consumer counter by one. Returns an error if the operation would cause an
-	/// underflow.
-	pub fn dec_consumers(&mut self) -> DispatchResult {
-		self.consumers_counter =
-			self.consumers_counter.checked_sub(1).ok_or(DispatchError::ConsumerRemaining)?;
-		Ok(())
-	}
-
-	/// Checks if the role is unused, i.e., if the consumers counter is zero. Returns an error if
-	/// the role is still being used.
-	pub fn check_if_unused(&self) -> DispatchResult {
-		self.consumers_counter
-			.is_zero()
-			.then_some(())
-			.ok_or(DispatchError::ConsumerRemaining)
-	}
-
-	pub fn check_version(&self, runtime_version: RuntimeVersion) -> DispatchResult {
-		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
-		ensure!(
-			hashed_runtime_version == self.runtime_version,
-			DispatchError::Other("Role runtime version does not match current runtime version")
-		);
-		Ok(())
-	}
-
-	fn infer_origin(&self, who: AccountId) -> RawOrigin<AccountId> {
-		match &self.dispatch_origin {
-			RoleDispatchOrigin::Regular => RawOrigin::Signed(who),
-			RoleDispatchOrigin::SignedAs { who } => RawOrigin::Signed(who.clone()),
-			RoleDispatchOrigin::Root => RawOrigin::Root,
-		}
-	}
-}
 
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type RoleNameOf<T> = BoundedVec<u8, <T as Config>::RoleNameLengthLimit>;
 type RoleInfoOf<T> = RoleInfo<<T as frame_system::Config>::AccountId>;
 type CallRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerCallLimit>;
 type AccountRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerAccountLimit>;
-type RuntimeVersionHash = [u8; 16];
 
 #[frame_support::pallet]
 pub mod pallet {
