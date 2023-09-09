@@ -283,6 +283,7 @@ impl pallet_rbac::Config for Runtime {
 	type RolesPerAccountLimit = ConstU32<20>;
 	type RolesPerCallLimit = ConstU32<20>;
 	type CallMetadata = RuntimeCallMetadata;
+	type ExtendedRuntimeCall = RuntimeCall;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -348,16 +349,6 @@ mod benches {
 		[pallet_template, TemplateModule]
 	);
 }
-
-// System: frame_system,
-// Timestamp: pallet_timestamp,
-// Aura: pallet_aura,
-// Grandpa: pallet_grandpa,
-// Balances: pallet_balances,
-// TransactionPayment: pallet_transaction_payment,
-// Sudo: pallet_sudo,
-// // Include the custom logic from the pallet-template in the runtime.
-// Roles: pallet_rbac,
 
 pub type ModuleCallIndex = (u64, u8);
 

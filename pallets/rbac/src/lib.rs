@@ -5,11 +5,12 @@ pub use pallet::*;
 
 use codec::{FullCodec, MaxEncodedLen};
 use frame_support::{
+	dispatch::fmt::Debug,
 	ensure,
 	pallet_prelude::{Decode, DispatchResult, Encode},
 	Hashable,
 };
-use frame_system::Pallet as System;
+use frame_system::{Pallet as System, RawOrigin};
 use scale_info::TypeInfo;
 use sp_runtime::{
 	traits::Zero,
@@ -21,11 +22,11 @@ use sp_version::RuntimeVersion;
 // pub use weights::*;
 use sp_weights::Weight;
 
-// #[cfg(test)]
-// mod mock;
+#[cfg(test)]
+mod mock;
 
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 
 // #[cfg(feature = "runtime-benchmarks")]
 // mod benchmarking;
@@ -33,22 +34,43 @@ use sp_weights::Weight;
 
 pub mod traits;
 
+#[derive(TypeInfo, MaxEncodedLen, Encode, Default, Decode, Debug, Clone, PartialEq, Eq)]
+#[scale_info(skip_type_params(T))]
+pub enum RoleDispatchOrigin<AccountId> {
+	#[default]
+	Regular,
+	SignedAs {
+		who: AccountId,
+	},
+	Root,
+}
+
 /// The `RoleInfo` struct holds information about a counter tracking how many consumers are using
 /// this role.
-#[derive(TypeInfo, MaxEncodedLen, Encode, Default, Decode)]
-pub struct RoleInfo {
+#[derive(TypeInfo, MaxEncodedLen, Encode, Decode)]
+#[scale_info(skip_type_params(T))]
+pub struct RoleInfo<AccounId> {
 	consumers_counter: u128,
 	runtime_version: RuntimeVersionHash,
+	dispatch_origin: RoleDispatchOrigin<AccounId>,
+	allow_filter_bypassing: bool,
 }
 
-impl RoleInfo {
-	fn new(runtime_version: RuntimeVersion) -> Self {
+impl<AccountId: Clone> RoleInfo<AccountId> {
+	fn new(
+		runtime_version: RuntimeVersion,
+		allow_filter_bypassing: bool,
+		dispatch_origin: RoleDispatchOrigin<AccountId>,
+	) -> Self {
 		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
-		Self { runtime_version: hashed_runtime_version, ..Default::default() }
+		Self {
+			runtime_version: hashed_runtime_version,
+			allow_filter_bypassing,
+			dispatch_origin,
+			consumers_counter: 0u128,
+		}
 	}
-}
 
-impl RoleInfo {
 	/// Increments the consumer counter by one. Returns an error if the operation would cause an
 	/// overflow.
 	pub fn inc_consumers(&mut self) -> DispatchResult {
@@ -82,10 +104,19 @@ impl RoleInfo {
 		);
 		Ok(())
 	}
+
+	fn infer_origin(&self, who: AccountId) -> RawOrigin<AccountId> {
+		match &self.dispatch_origin {
+			RoleDispatchOrigin::Regular => RawOrigin::Signed(who),
+			RoleDispatchOrigin::SignedAs { who } => RawOrigin::Signed(who.clone()),
+			RoleDispatchOrigin::Root => RawOrigin::Root,
+		}
+	}
 }
 
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type RoleNameOf<T> = BoundedVec<u8, <T as Config>::RoleNameLengthLimit>;
+type RoleInfoOf<T> = RoleInfo<<T as frame_system::Config>::AccountId>;
 type CallRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerCallLimit>;
 type AccountRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::RolesPerAccountLimit>;
 type RuntimeVersionHash = [u8; 16];
@@ -93,12 +124,15 @@ type RuntimeVersionHash = [u8; 16];
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use crate::traits::GetCallMetadataIndecies;
 	use frame_support::{
-		pallet_prelude::{OptionQuery, *},
+		dispatch::{fmt::Debug, Dispatchable, PostDispatchInfo, UnfilteredDispatchable},
+		pallet_prelude::{DispatchResultWithPostInfo, OptionQuery, *},
 		traits::Get,
 		Blake2_128Concat, Parameter,
 	};
 	use frame_system::pallet_prelude::*;
+	use sp_std::boxed::Box;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -113,19 +147,26 @@ pub mod pallet {
 		type RoleNameLengthLimit: Get<u32>;
 		/// Defines the maximum number of roles that can be associated with a particular call.
 		type RolesPerCallLimit: Get<u32>;
-
+		///
 		type RolesPerAccountLimit: Get<u32>;
 		/// Type representing the weight of this pallet
 		// type WeightInfo: WeightInfo;
 		/// Describes the metadata of a call, which is associated with roles to define permissions.
 		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter + From<(u64, u8)>;
+
+		type ExtendedRuntimeCall: Parameter
+			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
+			+ Debug
+			+ From<Call<Self>>
+			+ GetCallMetadataIndecies
+			+ UnfilteredDispatchable<RuntimeOrigin = Self::RuntimeOrigin>;
 	}
 
 	/// Holds the role information for each role name.
 	#[pallet::storage]
 	#[pallet::getter(fn roles)]
 	pub type Roles<T: Config> =
-		StorageMap<_, Blake2_128Concat, RoleNameOf<T>, RoleInfo, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, RoleNameOf<T>, RoleInfoOf<T>, OptionQuery>;
 
 	/// Holds account's roles
 	#[pallet::storage]
@@ -181,6 +222,7 @@ pub mod pallet {
 		RoleAlreadyAssigned,
 		/// The operation cannot be completed because a role needed for it was not found.
 		MissingRole,
+		RoleDoesNotAllowFilterBypass,
 	}
 
 	#[pallet::call]
@@ -195,12 +237,21 @@ pub mod pallet {
 		pub fn create_role(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
+			allow_filter_bypassing: bool,
+			allow_dispatch_as: RoleDispatchOrigin<<T as frame_system::Config>::AccountId>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
 			ensure!(Self::roles(&role_name).is_none(), Error::<T>::RoleExists);
 
 			let current_runtime_version = System::<T>::runtime_version();
-			Roles::<T>::insert(&role_name, RoleInfo::new(current_runtime_version));
+			Roles::<T>::insert(
+				&role_name,
+				RoleInfoOf::<T>::new(
+					current_runtime_version,
+					allow_filter_bypassing,
+					allow_dispatch_as,
+				),
+			);
 			Self::deposit_event(Event::<T>::RoleCreated { role_name });
 
 			Ok(().into())
@@ -218,12 +269,13 @@ pub mod pallet {
 		pub fn add_call(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
-			call: T::CallMetadata,
+			call: Box<T::ExtendedRuntimeCall>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
 			Self::check_role_existance_and_version(&role_name)?;
 
-			CallRoles::<T>::mutate(&call, |call_roles| {
+			let call_metadata: T::CallMetadata = call.get_call_metadata_indicies().into();
+			CallRoles::<T>::mutate(&call_metadata, |call_roles| {
 				let call_roles = call_roles.get_or_insert(CallRolesListOf::<T>::default());
 				ensure!(!call_roles.contains(&role_name), Error::<T>::CallAlreadyAttachedToRole);
 				call_roles
@@ -231,7 +283,7 @@ pub mod pallet {
 					.map_err(|_| Error::<T>::TooManyRolesPerCall)
 			})?;
 			Self::inc_role_consumers(&role_name)?;
-			Self::deposit_event(Event::<T>::CallAddedToRole { role_name, call_metadata: call });
+			Self::deposit_event(Event::<T>::CallAddedToRole { role_name, call_metadata });
 
 			Ok(().into())
 		}
@@ -248,12 +300,13 @@ pub mod pallet {
 		pub fn remove_call(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
-			call: T::CallMetadata,
+			call: Box<T::ExtendedRuntimeCall>,
 		) -> DispatchResultWithPostInfo {
 			T::ManageOrigin::ensure_origin(origin).map_err(|_| Error::<T>::BadOrigin)?;
 			ensure!(Self::roles(&role_name).is_some(), Error::<T>::RoleDoesNotExist);
 
-			CallRoles::<T>::mutate(&call, |call_roles| {
+			let call_metadata: T::CallMetadata = call.get_call_metadata_indicies().into();
+			CallRoles::<T>::mutate(&call_metadata, |call_roles| {
 				if let Some(call_roles) = call_roles.as_mut() {
 					ensure!(call_roles.contains(&role_name), Error::<T>::CallNotAttachedToRole);
 					call_roles.remove(&role_name);
@@ -263,7 +316,7 @@ pub mod pallet {
 				}
 			})?;
 			Self::dec_role_consumers(&role_name)?;
-			Self::deposit_event(Event::<T>::CallRemovedFromRole { role_name, call_metadata: call });
+			Self::deposit_event(Event::<T>::CallRemovedFromRole { role_name, call_metadata });
 
 			Ok(().into())
 		}
@@ -348,6 +401,33 @@ pub mod pallet {
 
 			Ok(().into())
 		}
+
+		#[pallet::call_index(6)]
+		#[pallet::weight(Weight::zero())]
+		pub fn dispatch_call_with_role(
+			origin: OriginFor<T>,
+			call: Box<T::ExtendedRuntimeCall>,
+			with_role: RoleNameOf<T>,
+		) -> DispatchResultWithPostInfo {
+			let who = ensure_signed(origin.clone())?;
+			let role_info = Self::check_role_existance_and_version(&with_role)?;
+			ensure!(
+				Self::account_roles(&who).unwrap_or_default().contains(&with_role),
+				Error::<T>::MissingRole,
+			);
+			let call_metadata: T::CallMetadata = call.get_call_metadata_indicies().into();
+			ensure!(
+				Self::call_roles(&call_metadata).unwrap_or_default().contains(&with_role),
+				Error::<T>::CallNotAttachedToRole,
+			);
+			ensure!(role_info.allow_filter_bypassing, Error::<T>::RoleDoesNotAllowFilterBypass);
+			let origin_for_dispatch = role_info.infer_origin(who);
+			if role_info.allow_filter_bypassing {
+				call.dispatch_bypass_filter(origin_for_dispatch.into())
+			} else {
+				call.dispatch(origin_for_dispatch.into())
+			}
+		}
 	}
 }
 
@@ -380,10 +460,13 @@ impl<T: Config> Pallet<T> {
 		})
 	}
 
-	pub fn check_role_existance_and_version(role_name: &RoleNameOf<T>) -> DispatchResult {
+	pub fn check_role_existance_and_version(
+		role_name: &RoleNameOf<T>,
+	) -> Result<RoleInfoOf<T>, DispatchError> {
 		let role_info = Self::roles(role_name).ok_or(Error::<T>::RoleDoesNotExist)?;
 		let current_version = System::<T>::runtime_version();
-		role_info.check_version(current_version)
+		role_info.check_version(current_version)?;
+		Ok(role_info)
 	}
 }
 
@@ -403,7 +486,7 @@ impl<T: Config> CallValidator<T::CallMetadata, AccountIdOf<T>> for Pallet<T> {
 			.intersection(&account_roles)
 			.next()
 			.ok_or(TransactionValidityError::Invalid(InvalidTransaction::Call))?;
-		Self::check_role_existance_and_version(&role_name)
+		Self::check_role_existance_and_version(role_name)
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 		Ok(())
 	}
