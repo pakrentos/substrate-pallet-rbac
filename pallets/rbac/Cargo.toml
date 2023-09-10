@@ -19,19 +19,23 @@ sp-version = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
+pallet-balances = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
+	"pallet-balances/std",
 	"scale-info/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"serde",
 	"sp-weights/std",
 	"sp-version/std",
 	"frame-benchmarking?/std",

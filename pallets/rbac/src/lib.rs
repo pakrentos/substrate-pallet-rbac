@@ -25,6 +25,8 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_utils;
 // #[cfg(feature = "runtime-benchmarks")]
 // mod benchmarking;
 // pub mod weights;
@@ -44,9 +46,9 @@ pub mod pallet {
 	use super::*;
 	use crate::traits::GetCallMetadataIndecies;
 	use frame_support::{
-		dispatch::{fmt::Debug, Dispatchable, PostDispatchInfo, UnfilteredDispatchable},
-		pallet_prelude::{DispatchResultWithPostInfo, OptionQuery, *},
-		traits::Get,
+		dispatch::{fmt::Debug, Dispatchable, PostDispatchInfo, UnfilteredDispatchable, Vec},
+		pallet_prelude::*,
+		traits::{BuildGenesisConfig, Get},
 		Blake2_128Concat, Parameter,
 	};
 	use frame_system::pallet_prelude::*;
@@ -70,7 +72,12 @@ pub mod pallet {
 		/// Type representing the weight of this pallet
 		// type WeightInfo: WeightInfo;
 		/// Describes the metadata of a call, which is associated with roles to define permissions.
-		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter + From<(u64, u8)>;
+		type CallMetadata: FullCodec
+			+ MaxEncodedLen
+			+ TypeInfo
+			+ Parameter
+			+ From<(u64, u8)>
+			+ MaybeSerializeDeserialize;
 
 		type ExtendedRuntimeCall: Parameter
 			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
@@ -113,6 +120,8 @@ pub mod pallet {
 		CallAddedToRole { role_name: RoleNameOf<T>, call_metadata: T::CallMetadata },
 		/// A call was removed from a role's permissions.
 		CallRemovedFromRole { role_name: RoleNameOf<T>, call_metadata: T::CallMetadata },
+
+		CallDispatchedWithRole { role_name: RoleNameOf<T>, who: AccountIdOf<T>, call_metadata: T::CallMetadata}
 	}
 
 	#[pallet::error]
@@ -140,7 +149,64 @@ pub mod pallet {
 		RoleAlreadyAssigned,
 		/// The operation cannot be completed because a role needed for it was not found.
 		MissingRole,
-		RoleDoesNotAllowFilterBypass,
+	}
+
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		/// [role_name, allow_filter_bypassing, is_root]
+		pub roles: Vec<(RoleNameOf<T>, bool, bool)>,
+		/// [role_name, call_metadata]
+		pub calls: Vec<(RoleNameOf<T>, T::CallMetadata)>,
+		/// [role_name, assgined_account]
+		pub users: Vec<(RoleNameOf<T>, AccountIdOf<T>)>,
+	}
+
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			Self { roles: Default::default(), calls: Default::default(), users: Default::default() }
+		}
+	}
+
+	#[cfg(feature = "std")]
+	#[pallet::genesis_build]
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+		fn build(&self) {
+			self.roles.iter().cloned().for_each(|(name, allow_filter_bypass, is_root)| {
+				let role_origin = is_root
+					.then(|| RoleDispatchOrigin::Root)
+					.unwrap_or(RoleDispatchOrigin::Regular);
+				Roles::<T>::insert(
+					&name,
+					RoleInfoOf::<T>::new(
+						System::<T>::runtime_version(),
+						allow_filter_bypass,
+						role_origin,
+					),
+				);
+			});
+			self.calls.iter().cloned().for_each(|(name, call_metadata)| {
+				CallRoles::<T>::mutate(call_metadata, |call_roles| {
+					let call_roles = call_roles.get_or_insert(CallRolesListOf::<T>::default());
+					Pallet::<T>::inc_role_consumers(&name)
+						.expect("Expected to increase consumers counter during genesis build");
+					call_roles
+						.try_insert(name)
+						.expect("Epected to insert a role name to call's roles set");
+				});
+			});
+			self.users.iter().cloned().for_each(|(name, user)| {
+				AccountRoles::<T>::mutate(user, |account_roles| {
+					let account_roles =
+						account_roles.get_or_insert(AccountRolesListOf::<T>::default());
+					Pallet::<T>::inc_role_consumers(&name)
+						.expect("Expected to increase consumers counter during genesis build");
+					account_roles
+						.try_insert(name)
+						.expect("Epected to insert a role name to account's roles set");
+				});
+			});
+		}
 	}
 
 	#[pallet::call]
@@ -338,13 +404,18 @@ pub mod pallet {
 				Self::call_roles(&call_metadata).unwrap_or_default().contains(&with_role),
 				Error::<T>::CallNotAttachedToRole,
 			);
-			ensure!(role_info.allow_filter_bypassing, Error::<T>::RoleDoesNotAllowFilterBypass);
-			let origin_for_dispatch = role_info.infer_origin(who);
-			if role_info.allow_filter_bypassing {
+			let origin_for_dispatch = role_info.infer_origin(who.clone());
+			let dispatch_result = if role_info.allow_filter_bypassing {
 				call.dispatch_bypass_filter(origin_for_dispatch.into())
 			} else {
 				call.dispatch(origin_for_dispatch.into())
-			}
+			};
+			Self::deposit_event(Event::<T>::CallDispatchedWithRole {
+				role_name: with_role,
+				who,
+				call_metadata,
+			});
+			dispatch_result
 		}
 	}
 }

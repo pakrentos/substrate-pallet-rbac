@@ -7,13 +7,19 @@ use frame_support::{
 };
 use frame_system::RawOrigin;
 use scale_info::TypeInfo;
+#[cfg(feature = "std")]
+use serde::{Deserialize, Serialize};
 use sp_runtime::traits::Zero;
 use sp_version::RuntimeVersion;
 
 pub type ModuleCallIndex = (u64, u8);
 pub type RuntimeVersionHash = [u8; 16];
 
-#[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo, Debug, MaxEncodedLen)]
+
+#[derive(
+	Encode, Decode, Clone, Eq, PartialEq, TypeInfo, Debug, MaxEncodedLen,
+)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct CallMetadata {
 	pub function_index: u8,
 	pub pallet_index: u64,
@@ -38,11 +44,11 @@ pub enum RoleDispatchOrigin<AccountId> {
 
 /// The `RoleInfo` struct holds information about a counter tracking how many consumers are using
 /// this role.
-#[derive(TypeInfo, MaxEncodedLen, Encode, Decode)]
-pub struct RoleInfo<AccounId> {
+#[derive(TypeInfo, MaxEncodedLen, Encode, Decode, PartialEq, Eq, Debug)]
+pub struct RoleInfo<AccountId> {
 	consumers_counter: u128,
 	runtime_version: RuntimeVersionHash,
-	dispatch_origin: RoleDispatchOrigin<AccounId>,
+	dispatch_origin: RoleDispatchOrigin<AccountId>,
 	pub allow_filter_bypassing: bool,
 }
 
@@ -101,5 +107,20 @@ impl<AccountId: Clone> RoleInfo<AccountId> {
 			RoleDispatchOrigin::SignedAs { who } => RawOrigin::Signed(who.clone()),
 			RoleDispatchOrigin::Root => RawOrigin::Root,
 		}
+	}
+
+	#[cfg(test)]
+	pub(crate) fn get_consumers_counter(&self) -> u128 {
+		self.consumers_counter
+	}
+
+	#[cfg(test)]
+	pub(crate) fn new_raw(
+		consumers_counter: u128,
+		runtime_version: RuntimeVersionHash,
+		allow_filter_bypassing: bool,
+		dispatch_origin: RoleDispatchOrigin<AccountId>,
+	) -> Self {
+		Self { consumers_counter, runtime_version, dispatch_origin, allow_filter_bypassing }
 	}
 }
