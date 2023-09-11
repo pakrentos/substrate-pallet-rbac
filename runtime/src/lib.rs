@@ -276,7 +276,7 @@ impl pallet_sudo::Config for Runtime {
 /// Configure the pallet-template in pallets/template.
 impl pallet_rbac::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	// type WeightInfo = ();
+	type WeightInfo = pallet_rbac::SubstrateWeight<Runtime>;
 	type ManageOrigin = EnsureRoot<AccountId>;
 	type RoleNameLengthLimit = ConstU32<50>;
 	type RolesPerAccountLimit = ConstU32<20>;
@@ -345,7 +345,7 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_timestamp, Timestamp]
 		[pallet_sudo, Sudo]
-		[pallet_template, TemplateModule]
+		[pallet_rbac, Roles]
 	);
 }
 

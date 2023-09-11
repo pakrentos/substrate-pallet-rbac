@@ -12,8 +12,6 @@ pub(crate) type RolesError = Error<Test>;
 pub(crate) type SystemEvent = frame_system::Event<Test>;
 pub(crate) type CallRolesSet =
 	BoundedBTreeSet<RoleNameOf<Test>, <Test as Config>::RolesPerCallLimit>;
-pub(crate) type AccountRolesSet =
-	BoundedBTreeSet<RoleNameOf<Test>, <Test as Config>::RolesPerAccountLimit>;
 
 pub(crate) fn role_name(name: &[u8]) -> RoleNameOf<Test> {
 	name.to_vec().try_into().expect("Expected to generate a role name")
@@ -65,14 +63,6 @@ pub(crate) fn deprecated_metadata() -> CallMetadata {
 
 pub(crate) fn call_set_with(names: Vec<RoleNameOf<Test>>) -> Option<CallRolesSet> {
 	let mut new_set = CallRolesSet::new();
-	names.into_iter().for_each(|name| {
-		new_set.try_insert(name).unwrap();
-	});
-	Some(new_set)
-}
-
-pub(crate) fn account_set_with(names: Vec<RoleNameOf<Test>>) -> Option<AccountRolesSet> {
-	let mut new_set = AccountRolesSet::new();
 	names.into_iter().for_each(|name| {
 		new_set.try_insert(name).unwrap();
 	});

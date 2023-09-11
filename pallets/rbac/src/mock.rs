@@ -24,7 +24,6 @@ type Balance = u128;
 
 pub(crate) const ALICE: AccountId = 1;
 pub(crate) const BOB: AccountId = 2;
-pub(crate) const NICK: AccountId = 3;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
@@ -85,7 +84,7 @@ impl pallet_balances::Config for Test {
 
 impl pallet_rbac::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	// type WeightInfo = ();
+	type WeightInfo = ();
 	type ManageOrigin = EnsureRoot<AccountId>;
 	type RoleNameLengthLimit = ConstU32<50>;
 	type RolesPerAccountLimit = ConstU32<20>;

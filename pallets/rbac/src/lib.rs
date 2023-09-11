@@ -17,8 +17,7 @@ use sp_runtime::{
 	BoundedBTreeSet, BoundedVec, DispatchError,
 };
 use sp_std::default::Default;
-// pub use weights::*;
-use sp_weights::Weight;
+pub use weights::*;
 
 #[cfg(test)]
 mod mock;
@@ -28,9 +27,10 @@ mod tests;
 
 #[cfg(test)]
 mod tests_utils;
-// #[cfg(feature = "runtime-benchmarks")]
-// mod benchmarking;
-// pub mod weights;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
 
 pub mod extension;
 pub mod primitives;
@@ -47,7 +47,10 @@ pub mod pallet {
 	use super::*;
 	use crate::{primitives::ModuleCallIndex, traits::GetCallMetadataIndecies};
 	use frame_support::{
-		dispatch::{fmt::Debug, Dispatchable, PostDispatchInfo, UnfilteredDispatchable, Vec},
+		dispatch::{
+			fmt::Debug, Dispatchable, GetDispatchInfo, PostDispatchInfo, UnfilteredDispatchable,
+			Vec,
+		},
 		pallet_prelude::*,
 		traits::{BuildGenesisConfig, Get},
 		Blake2_128Concat, Parameter,
@@ -68,19 +71,20 @@ pub mod pallet {
 		type RoleNameLengthLimit: Get<u32>;
 		/// Defines the maximum number of roles that can be associated with a particular call.
 		type RolesPerCallLimit: Get<u32>;
-		///
+		/// Defines the maximum number of roles that can be associated with a particular account.
 		type RolesPerAccountLimit: Get<u32>;
 		/// Type representing the weight of this pallet
-		// type WeightInfo: WeightInfo;
+		type WeightInfo: WeightInfo;
 		/// Describes the metadata of a call, which is associated with roles to define permissions.
 		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter + From<(u64, u8)>;
-
+		/// RuntimeCall time extended with GetCallMetadataIndecies trait
 		type ExtendedRuntimeCall: Parameter
 			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
 			+ Debug
 			+ From<Call<Self>>
 			+ GetCallMetadataIndecies
-			+ UnfilteredDispatchable<RuntimeOrigin = Self::RuntimeOrigin>;
+			+ UnfilteredDispatchable<RuntimeOrigin = Self::RuntimeOrigin>
+			+ GetDispatchInfo;
 	}
 
 	/// Holds the role information for each role name.
@@ -216,7 +220,7 @@ pub mod pallet {
 		/// # Parameters
 		/// - `role_name`: The name of the new role to create.
 		#[pallet::call_index(0)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::create_role())]
 		pub fn create_role(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
@@ -248,7 +252,7 @@ pub mod pallet {
 		/// - `role_name`: The name of the role to modify.
 		/// - `call`: The metadata of the call to add to the role's allowed list.
 		#[pallet::call_index(1)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::add_call())]
 		pub fn add_call(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
@@ -279,7 +283,7 @@ pub mod pallet {
 		/// - `role_name`: The name of the role to modify.
 		/// - `call`: The metadata of the call to remove from the role's allowed list.
 		#[pallet::call_index(2)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::remove_call())]
 		pub fn remove_call(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
@@ -311,7 +315,7 @@ pub mod pallet {
 		/// - `who`: The account to assign the role to.
 		/// - `role_name`: The name of the role to assign.
 		#[pallet::call_index(3)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::assign_role())]
 		pub fn assign_role(
 			origin: OriginFor<T>,
 			who: AccountIdOf<T>,
@@ -340,7 +344,7 @@ pub mod pallet {
 		/// - `who`: The account to unassign the role from.
 		/// - `role_name`: The name of the role to unassign.
 		#[pallet::call_index(4)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::unassign_role())]
 		pub fn unassign_role(
 			origin: OriginFor<T>,
 			who: AccountIdOf<T>,
@@ -371,7 +375,7 @@ pub mod pallet {
 		/// # Parameters
 		/// - `role_name`: The name of the role to remove.
 		#[pallet::call_index(5)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight(T::WeightInfo::remove_role())]
 		pub fn remove_role(
 			origin: OriginFor<T>,
 			role_name: RoleNameOf<T>,
@@ -386,7 +390,13 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(6)]
-		#[pallet::weight(Weight::zero())]
+		#[pallet::weight({
+			let dispatch_info = call.get_dispatch_info();
+			(
+				T::WeightInfo::dispatch_call_with_role().saturating_add(dispatch_info.weight),
+				dispatch_info.class
+			)
+		})]
 		pub fn dispatch_call_with_role(
 			origin: OriginFor<T>,
 			call: Box<T::ExtendedRuntimeCall>,
