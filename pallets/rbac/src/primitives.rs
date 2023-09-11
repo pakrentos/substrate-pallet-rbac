@@ -7,19 +7,13 @@ use frame_support::{
 };
 use frame_system::RawOrigin;
 use scale_info::TypeInfo;
-#[cfg(feature = "std")]
-use serde::{Deserialize, Serialize};
 use sp_runtime::traits::Zero;
 use sp_version::RuntimeVersion;
 
 pub type ModuleCallIndex = (u64, u8);
 pub type RuntimeVersionHash = [u8; 16];
 
-
-#[derive(
-	Encode, Decode, Clone, Eq, PartialEq, TypeInfo, Debug, MaxEncodedLen,
-)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo, Debug, MaxEncodedLen)]
 pub struct CallMetadata {
 	pub function_index: u8,
 	pub pallet_index: u64,
@@ -29,6 +23,12 @@ impl From<ModuleCallIndex> for CallMetadata {
 	fn from(value: ModuleCallIndex) -> Self {
 		let (pallet_index, function_index) = value;
 		Self { function_index, pallet_index }
+	}
+}
+
+impl CallMetadata {
+	pub fn into_inner(self) -> ModuleCallIndex {
+		(self.pallet_index, self.function_index)
 	}
 }
 

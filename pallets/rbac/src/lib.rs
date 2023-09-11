@@ -44,7 +44,7 @@ type AccountRolesListOf<T> = BoundedBTreeSet<RoleNameOf<T>, <T as Config>::Roles
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use crate::traits::GetCallMetadataIndecies;
+	use crate::{primitives::ModuleCallIndex, traits::GetCallMetadataIndecies};
 	use frame_support::{
 		dispatch::{fmt::Debug, Dispatchable, PostDispatchInfo, UnfilteredDispatchable, Vec},
 		pallet_prelude::*,
@@ -72,12 +72,7 @@ pub mod pallet {
 		/// Type representing the weight of this pallet
 		// type WeightInfo: WeightInfo;
 		/// Describes the metadata of a call, which is associated with roles to define permissions.
-		type CallMetadata: FullCodec
-			+ MaxEncodedLen
-			+ TypeInfo
-			+ Parameter
-			+ From<(u64, u8)>
-			+ MaybeSerializeDeserialize;
+		type CallMetadata: FullCodec + MaxEncodedLen + TypeInfo + Parameter + From<(u64, u8)>;
 
 		type ExtendedRuntimeCall: Parameter
 			+ Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
@@ -121,7 +116,11 @@ pub mod pallet {
 		/// A call was removed from a role's permissions.
 		CallRemovedFromRole { role_name: RoleNameOf<T>, call_metadata: T::CallMetadata },
 
-		CallDispatchedWithRole { role_name: RoleNameOf<T>, who: AccountIdOf<T>, call_metadata: T::CallMetadata}
+		CallDispatchedWithRole {
+			role_name: RoleNameOf<T>,
+			who: AccountIdOf<T>,
+			call_metadata: T::CallMetadata,
+		},
 	}
 
 	#[pallet::error]
@@ -156,19 +155,17 @@ pub mod pallet {
 		/// [role_name, allow_filter_bypassing, is_root]
 		pub roles: Vec<(RoleNameOf<T>, bool, bool)>,
 		/// [role_name, call_metadata]
-		pub calls: Vec<(RoleNameOf<T>, T::CallMetadata)>,
+		pub calls: Vec<(RoleNameOf<T>, ModuleCallIndex)>,
 		/// [role_name, assgined_account]
 		pub users: Vec<(RoleNameOf<T>, AccountIdOf<T>)>,
 	}
 
-	#[cfg(feature = "std")]
 	impl<T: Config> Default for GenesisConfig<T> {
 		fn default() -> Self {
 			Self { roles: Default::default(), calls: Default::default(), users: Default::default() }
 		}
 	}
 
-	#[cfg(feature = "std")]
 	#[pallet::genesis_build]
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
@@ -186,6 +183,7 @@ pub mod pallet {
 				);
 			});
 			self.calls.iter().cloned().for_each(|(name, call_metadata)| {
+				let call_metadata: T::CallMetadata = call_metadata.into();
 				CallRoles::<T>::mutate(call_metadata, |call_roles| {
 					let call_roles = call_roles.get_or_insert(CallRolesListOf::<T>::default());
 					Pallet::<T>::inc_role_consumers(&name)

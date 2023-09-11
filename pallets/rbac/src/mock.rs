@@ -119,8 +119,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(default_empty_role(), false, false),
 		],
 		calls: vec![
-			(remarker_role(), remark_metadata()),
-			(balancer_role(), force_set_balance_metadata()),
+			(remarker_role(), remark_metadata().into_inner()),
+			(balancer_role(), force_set_balance_metadata().into_inner()),
 		],
 		users: vec![(remarker_role(), ALICE), (balancer_role(), ALICE)],
 	}
