@@ -12,6 +12,7 @@ use frame_support::{ensure, pallet_prelude::DispatchResult};
 use frame_system::Pallet as System;
 use scale_info::TypeInfo;
 use sp_runtime::{
+	traits::Zero,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	BoundedBTreeSet, BoundedVec, DispatchError,
 };
@@ -462,12 +463,13 @@ impl<T: Config> CallValidator<T::CallMetadata, AccountIdOf<T>> for Pallet<T> {
 		call: T::CallMetadata,
 		who: &AccountIdOf<T>,
 	) -> Result<(), TransactionValidityError> {
-		let call_roles =
-			if let Some(call_roles) = Self::call_roles(&call) { call_roles } else { return Ok(()) };
-		let account_roles = if let Some(account_roles) = Self::account_roles(who) {
-			account_roles
-		} else {
-			return Err(TransactionValidityError::Invalid(InvalidTransaction::Call))
+		let call_roles = match Self::call_roles(&call) {
+			Some(call_roles) if !call_roles.len().is_zero() => call_roles,
+			_ => return Ok(()),
+		};
+		let account_roles = match Self::account_roles(who) {
+			Some(account_roles) if !account_roles.len().is_zero() => account_roles,
+			_ => return Err(TransactionValidityError::Invalid(InvalidTransaction::Call)),
 		};
 		let role_name = call_roles
 			.intersection(&account_roles)

@@ -1,6 +1,10 @@
-use crate::{mock::*, tests_utils::*, RoleInfo};
-use frame_support::{assert_noop, assert_ok, Hashable};
-use sp_runtime::DispatchError;
+use crate::{mock::*, tests_utils::*, CheckRole, RoleInfo};
+use frame_support::{assert_err, assert_noop, assert_ok, dispatch::DispatchInfo, Hashable};
+use sp_runtime::{
+	traits::SignedExtension,
+	transaction_validity::{InvalidTransaction, TransactionValidityError},
+	DispatchError,
+};
 
 #[test]
 fn create_role_should_work() {
@@ -347,6 +351,85 @@ fn dispatch_call_with_role_should_work() {
 		System::assert_has_event(
 			SystemEvent::Remarked { sender: ALICE, hash: sp_core::H256(b"abc".blake2_256()) }
 				.into(),
+		);
+		System::assert_last_event(
+			RolesEvent::CallDispatchedWithRole {
+				role_name: remarker_role(),
+				who: ALICE,
+				call_metadata: remark_metadata(),
+			}
+			.into(),
+		);
+	});
+}
+
+#[test]
+fn check_role_should_work() {
+	new_test_ext().execute_with(|| {
+		assert!(Roles::roles(remarker_role()).is_some());
+		assert!(account_set_contains(&ALICE, &remarker_role()));
+		assert!(!account_set_contains(&BOB, &remarker_role()));
+		assert!(call_set_contains(&remark_metadata(), &remarker_role()));
+
+		assert_ok!(CheckRole::<Test>::new().pre_dispatch(
+			&ALICE,
+			&remark_call(),
+			&DispatchInfo::default(),
+			1
+		));
+		assert_err!(
+			CheckRole::<Test>::new().pre_dispatch(
+				&BOB,
+				&remark_call(),
+				&DispatchInfo::default(),
+				1
+			),
+			TransactionValidityError::Invalid(InvalidTransaction::Call)
+		);
+	});
+}
+
+#[test]
+fn check_role_for_non_attached_call_should_work() {
+	new_test_ext().execute_with(|| {
+		assert!(Roles::roles(remarker_role()).is_some());
+		assert!(account_set_contains(&ALICE, &remarker_role()));
+		assert!(!account_set_contains(&BOB, &remarker_role()));
+
+		Roles::remove_call(root(), remarker_role(), remark_call())
+			.expect("Expected to remove remark call from a role remarker");
+		assert!(!call_set_contains(&remark_metadata(), &remarker_role()));
+
+		assert_ok!(CheckRole::<Test>::new().pre_dispatch(
+			&ALICE,
+			&remark_call(),
+			&DispatchInfo::default(),
+			1
+		));
+		assert_ok!(CheckRole::<Test>::new().pre_dispatch(
+			&BOB,
+			&remark_call(),
+			&DispatchInfo::default(),
+			1
+		),);
+	});
+}
+
+#[test]
+fn obsolete_role_should_prevent_check_role() {
+	new_test_ext().execute_with(|| {
+		assert!(Roles::roles(obsolete_role()).is_some());
+		assert!(account_set_contains(&ALICE, &obsolete_role()));
+		assert!(call_set_contains(&deprecated_metadata(), &obsolete_role()));
+
+		assert_err!(
+			CheckRole::<Test>::new().pre_dispatch(
+				&ALICE,
+				&deprecated_call(),
+				&DispatchInfo::default(),
+				1
+			),
+			TransactionValidityError::Invalid(InvalidTransaction::Call)
 		);
 	});
 }
