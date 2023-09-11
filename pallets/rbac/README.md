@@ -19,13 +19,13 @@ Here is how you can use the features of the RBAC pallet (examples contain encode
 #### Creating a role
 Create a new role "Remarker" (requires sudo):
 ```
-0x060007002052656d61726b6572
+0x060007002052656d61726b65720000
 ```
 
 #### Adding a call to a role
 Add System::remark_with_event call to the role "Remarker" (requires sudo):
 ```
-0x060007012052656d61726b6572070000000000000000
+0x060007012052656d61726b657200070431
 ```
 
 #### Assigning a role to a user
@@ -43,11 +43,17 @@ Unassign Alice from role "Remarker" (requires sudo):
 #### Remove call from a role
 Remove System::remark_with_event call from role "Remarker" (requires sudo):
 ```
-0x060007022052656d61726b6572070000000000000000
+0x060007022052656d61726b657200070431
 ```
 
 #### Remove a role entirely
 Remove role "Remarker" (requires sudo):
 ```
 0x060007052052656d61726b6572
+```
+
+#### Dispatch remark_with_event with Remarker role
+Dispatch a call:
+```
+0x0706000704312052656d61726b6572
 ```

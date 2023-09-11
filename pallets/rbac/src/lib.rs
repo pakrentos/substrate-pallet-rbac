@@ -120,7 +120,7 @@ pub mod pallet {
 		CallAddedToRole { role_name: RoleNameOf<T>, call_metadata: T::CallMetadata },
 		/// A call was removed from a role's permissions.
 		CallRemovedFromRole { role_name: RoleNameOf<T>, call_metadata: T::CallMetadata },
-
+		/// A call was dispatched using a role with a `role_name`
 		CallDispatchedWithRole {
 			role_name: RoleNameOf<T>,
 			who: AccountIdOf<T>,
@@ -389,6 +389,17 @@ pub mod pallet {
 			Ok(().into())
 		}
 
+		/// Dispatches a call with a specified role.
+		///
+		/// This extrinsic allows the caller to execute a runtime call with a given role.
+		/// The role is used to infer the appropriate origin for the call dispatch and to
+		/// handle other role-specific logic.
+		///
+		/// # Parameters
+		/// - `origin`: The origin of the call, expected to be a signed origin.
+		/// - `call`: The runtime call to be dispatched, wrapped in a `Box` to manage the call's
+		///   size at runtime.
+		/// - `with_role`: The role with which the call should be dispatched.
 		#[pallet::call_index(6)]
 		#[pallet::weight({
 			let dispatch_info = call.get_dispatch_info();
@@ -458,6 +469,17 @@ impl<T: Config> Pallet<T> {
 		})
 	}
 
+	/// Checks the existence and version compatibility of a specified role.
+	///
+	/// Given a role name, this function performs two essential checks:
+	///
+	/// 1. It verifies the existence of the role in the storage. If the role does not exist, it
+	///    returns a `RoleDoesNotExist` error.
+	/// 2. It verifies the compatibility of the role's version with the current runtime version. If
+	///    the versions are incompatible, it returns a custom error.
+	///
+	/// # Parameters
+	/// - `role_name`: A reference to the name of the role to check.
 	pub fn check_role_existance_and_version(
 		role_name: &RoleNameOf<T>,
 	) -> Result<RoleInfoOf<T>, DispatchError> {

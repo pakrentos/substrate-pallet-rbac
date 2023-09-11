@@ -8,6 +8,7 @@ use sp_runtime::{
 };
 use sp_std::marker::PhantomData;
 
+/// A structure to validate transactions based on user's role during the pre-dispatch phase.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct CheckRole<T: Config>(PhantomData<T>);

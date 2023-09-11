@@ -92,6 +92,15 @@ impl<AccountId: Clone> RoleInfo<AccountId> {
 			.ok_or(DispatchError::ConsumerRemaining)
 	}
 
+	/// Checks if the runtime version matches the one stored in the `RoleInfo`.
+	///
+	/// This method verifies that the given `runtime_version` matches the version stored in the
+	/// role's information by hashing the given `runtime_version` and comparing it to the stored
+	/// hash. This ensures that the role is compatible with the current runtime version.
+	///
+	/// # Parameters
+	/// - `runtime_version`: The runtime version to be checked. It is hashed using the `twox_128`
+	///   algorithm and then compared to the stored hash.
 	pub fn check_version(&self, runtime_version: RuntimeVersion) -> DispatchResult {
 		let hashed_runtime_version: RuntimeVersionHash = runtime_version.encode().twox_128();
 		ensure!(
@@ -101,6 +110,16 @@ impl<AccountId: Clone> RoleInfo<AccountId> {
 		Ok(())
 	}
 
+	/// Infers the origin for call dispatch based on a role's dispatch origin configuration.
+	///
+	/// This function determines the appropriate dispatch origin based on the `dispatch_origin`
+	/// attribute of the role. It translates the abstract representation of the origin into a
+	/// concrete `RawOrigin` variant that can be used in dispatching calls.
+	///
+	/// # Parameters
+	/// - `who`: The account ID of the user attempting to dispatch a call. This parameter is used to
+	///   construct a signed origin when the role's dispatch origin is set to `Regular` or
+	///   `SignedAs`.
 	pub fn infer_origin(&self, who: AccountId) -> RawOrigin<AccountId> {
 		match &self.dispatch_origin {
 			RoleDispatchOrigin::Regular => RawOrigin::Signed(who),
